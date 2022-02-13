@@ -1,8 +1,31 @@
-import { createCookieSessionStorage } from "remix";
+import { createSessionStorage } from "remix";
 import { Authenticator, AuthorizationError } from "remix-auth";
 import { FormStrategy } from "remix-auth-form";
+import { db } from "~/db.server";
+import crypto from 'crypto';
 
-export const sessionStorage = createCookieSessionStorage({
+function createDatabaseSessionStorage({ cookie }: { cookie: any }) {
+  return createSessionStorage({
+    cookie,
+    async createData(data, expires) {
+      const token = crypto.randomBytes(64).toString('hex');
+      const session = await db.session.create({ data: { token } });
+      return session.token;
+    },
+    async readData(token) {
+      return (await db.session.findUnique({ where: { token }})) || null;
+    },
+    async updateData(token, data, expires) {
+      await db.session.update({ where: { token }, data })
+    },
+    async deleteData(token) {
+      await db.session.delete({ where: { token }})
+    }
+  });
+}
+
+
+export const sessionStorage = createDatabaseSessionStorage({
   cookie: {
     name: "__session",
     httpOnly: true,
@@ -13,7 +36,7 @@ export const sessionStorage = createCookieSessionStorage({
   }
 });
 
-export const auth = new Authenticator<string>(sessionStorage);
+export const auth = new Authenticator<string>(sessionStorage, { sessionKey: 'token' });
 
 auth.use(
   new FormStrategy(async ({ form }) => {
